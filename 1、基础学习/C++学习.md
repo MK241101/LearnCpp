@@ -807,6 +807,20 @@ int main() {
 
 - git log，查看代码修改日志
 
+- git checkout -- <file> 在git add之前，把工作区的代码用版本库中的代码覆盖掉，注意命令中的--不能去掉，否则成切换分支的命令了
+
+- git reset HEAD 把git add之后，暂存区的内容全部撤销
+
+- git reset --hard commit-id  把提交到本地仓库中的代码改动进行回退
+
+- git reflog 查看HEAD指针的改动日志
+
+- git push -f origin main 强制推送本地仓库代码到远程仓库
+
+- git diff HEAD -- <file> 查看工作区file文件和仓库中该文件最新版本的 代码有什么区别
+
+![git撤销](assets/git撤销.png)
+
 ## （2）名词介绍
 
 - 工作区：当前存放项目代码的目录
