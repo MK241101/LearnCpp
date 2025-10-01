@@ -651,103 +651,154 @@ int main() {
 }
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+## 28、类模板
+
+实现一个vector向量容器
+
+```C++
+template<typename T>
+class vector {
+public:
+	vector(int size = 10) {
+		_first = new T[size];
+		_last = _first;
+		_end = _first + size;
+	}
+
+	~vector() {
+		delete[] _first;
+		_first = _last = _end = nullptr;
+	
+	}
+
+	vector(const vector<T>& rhs)       // 拷贝构造函数
+	{
+		int size = rhs._end - rhs._first;
+		_first = new T[size];
+		int len = rhs._last - rhs._first;
+		for (int i = 0; i < len; ++i)
+		{
+			_first[i] = rhs._first[i];
+		} 
+		_last = _first + len;
+		_end = _first+ size;
+	}
+
+	vector<T>& operator=(const vector<T>& rhs)     //赋值构造函数
+	{
+		if(this==&rhs)
+			return *this;
+		delete[] _first;
+		int size = rhs._end - rhs._first;
+		_first = new T[size];
+		int len = rhs._last - rhs._first;
+		for (int i = 0; i < len; ++i)
+		{
+			_first[i] = rhs._first[i];
+		}
+		_last = _first + len;
+		_end = _first + size;
+
+	}
+
+	void push_back(const T& val)
+	{
+		if (full())
+			expand();
+		*_last++ = val;
+	}
+
+	void pop_back()
+	{
+		if (empty())
+			return;
+		--_last;
+	}
+
+	T back()const
+	{
+		return *(_last - 1);
+	}
+	bool full()const { return _last == _end; }
+	bool empty()const { return _last == _first; }
+	int size()const { return _last - _first; }
+
+private:
+	T* _first;   //指向数组起始位置
+	T* _last;    //指向数组最后一个元素的下一个位置
+	T* _end;     //指向数组的最后一个位置
+
+	void expand()
+	{
+		int size = _end - _first;
+		T* ptmp = new T[size * 2];
+		for (int i = 0; i < size; ++i)
+		{
+			ptmp[i] = _first[i];
+		}
+		delete[] _first;
+		_first = ptmp;
+		_last = _first + size;
+		_end = _first + size * 2;
+	}
+};
+
+int main()
+{
+	vector<int> vec;
+	for (int i = 0; i < 20; ++i)
+	{
+		vec.push_back(rand() % 100);
+	}
+
+	while (!vec.empty())
+	{
+		cout << vec.back() << " ";
+		vec.pop_back();
+	}
+	cout << endl;
+
+	return 0;
+}
+```
+
+## 29、空间配置器
+
+### （1）分离 “内存分配” 与 “对象构造 / 析构”
+
+主要做了四件事情：内存开辟、内存释放、对象构造、对象析构
+
+配置器的职责是**纯粹的 “内存块操作”**（比如分配一段能存`n`个`T`类型对象的内存）；而**对象的构造 / 析构由容器或相关组件（如 “类型萃取” 机制）控制**。这种分离让性能更优：
+
+- 对于简单类型（如`int`、`double`等 POD 类型），构造 / 析构无需额外操作，直接操作内存块即可，节省函数调用开销；
+- 对于自定义类型，容器会主动调用构造 / 析构函数，保证对象正确初始化和资源释放。
+
+```C++
+template<typename T>
+class Allocator
+{
+public:
+	T* allocate(size_t size)  // 负责内存开辟
+	{
+		return (T*)malloc(sizeof(T) * size);
+	}
+
+	void deallocate(void* p)  // 负责内存释放
+	{
+		free(p);
+	}
+
+	void construct(T* p, const T& val)  // 负责对象构造（使用定位new）
+	{
+		new (p) T(val);
+	}
+
+	void destroy(T* p)  // 负责对象析构（调用对象的析构函数）
+	{
+		p->~T();
+	}
+};
+```
 
 
 
@@ -786,6 +837,12 @@ int main() {
 - malloc只开辟内存，而new不仅可以开辟内存，同时还可以做初始化的操作
 - malloc开辟内存失败是通过返回值和nullptr做比较；而new开辟内存失败是通过抛出bad_alloc类型的异常来判断
 **注意：**C++代码里面尽量不用malloc和free
+
+
+
+
+
+
 
 
 
