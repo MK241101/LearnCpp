@@ -524,7 +524,7 @@ int main(){
 - 可以任意访问对象的私有成员，仅限于不依赖对象的成员（只能调用其他的static静态成员）
 
   注意：静态成员变量一定要在类外进行定义并且初始化。
-###     （3） const常成员方法
+###     （3）const常成员方法
 
 - 编译器会生成    const 类名 *this   指针
 - 调用依赖一个对象，普通对象或者常对象都可以
@@ -800,17 +800,177 @@ public:
 };
 ```
 
+## 30、运算符的重载
+
+目的：使对象之间的运算和编译器内置类型一样
+
+编译器做对象运算的时候，会调用对象的运算符重载函数（优先调用成员方法），如果没有成员方法，就在全局作用域找合适的运算符重载函数
+
+++运算符的重载：
+
+- 前置++：operator++()
+- 后置++：operator++(int)     后置++  括号里面要带参数
+
+```C++
+#include <iostream>
+using namespace std;
+
+class Complex {
+private:
+    double real;  // 实部
+    double imag;  // 虚部
+
+public:
+    // 构造函数
+    Complex(double r = 0, double i = 0) : real(r), imag(i) {}
+
+    // 重载+运算符，实现两个复数相加
+    Complex operator+(const Complex& other) const;
+
+    // 重载前缀++运算符
+    Complex& operator++();
+
+    // 重载后缀++运算符
+    Complex operator++(int);
+
+    // 友元函数，重载<<运算符，用于输出复数
+    friend ostream& operator<<(ostream& out, const Complex& c);
+};
+
+// 实现+运算符重载
+Complex Complex::operator+(const Complex& other) const {
+    // 复数相加：实部加实部，虚部加虚部
+    return Complex(real + other.real, imag + other.imag);
+}
+
+// 实现前缀++运算符重载
+Complex& Complex::operator++() {
+    // 前缀自加：先加后用，这里选择对实部进行加1操作
+    real++;
+    return *this;
+}
+
+// 实现后缀++运算符重载
+Complex Complex::operator++(int) {
+    // 后缀自加：先用后加，通过参数int区分
+    Complex temp = *this;  // 保存当前值
+    real++;                // 实部加1
+    return temp;           // 返回未加之前的值
+}
+
+// 实现<<运算符重载，方便输出复数
+ostream& operator<<(ostream& out, const Complex& c) {
+    out << c.real;
+    if (c.imag >= 0) {
+        out << "+";  // 虚部为正时显示加号
+    }
+    out << c.imag << "i";
+    return out;
+}
+
+int main() {
+    Complex c1(2.5, 3.7);
+    Complex c2(1.6, -2.8);
+
+    cout << "初始值：" << endl;
+    cout << "c1 = " << c1 << endl;
+    cout << "c2 = " << c2 << endl;
+
+    // 测试加法运算
+    Complex c3 = c1 + c2;
+    cout << "\nc1 + c2 = " << c3 << endl;
+
+    // 测试前缀自加
+    ++c1;
+    cout << "++c1 = " << c1 << endl;
+
+    // 测试后缀自加
+    Complex c4 = c2++;
+    cout << "c2++ 运算后，返回值 = " << c4 << endl;
+    cout << "c2++ 运算后，c2 = " << c2 << endl;
+
+    return 0;
+}
+```
+
+## 31、迭代器
+
+​		可以把迭代器理解为 **“带逻辑的指针”**—— 不仅存储元素的地址，还关联着容器的结构规则。当容器的 “底层支撑”（内存、节点关系等）被改变时，迭代器的 “指向逻辑” 就会被破坏，从而失效。
+
+功能：提供一种统一的方式，**来透明的遍历容器**
+
+迭代器失效的3种情况：
+
+- 当容器调用erase方法后，从当前位置到容器末尾元素的所有迭代器全部失效了
+- 当容器调用insert方法后，从当前位置到容器末尾元素的所有迭代器全部失效了
+- 对于insert方法来说，如果引起容器内存扩容，那么原来容器的所有迭代器就全部失效了
+
+怎样解决失效的问题：
+
+​	对插入/删除点的迭代器进行更新操作
+
+```C++
+#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    vector<int> v = {1, 2, 3, 4, 5};
+    auto it = v.begin();    // 情况1：erase导致迭代器失效及解决
+    // 正确做法：用erase的返回值更新迭代器（返回下一个有效迭代器）
+    while (it != v.end()) {
+        if (*it % 2 == 0) { // 删除偶数
+            it = v.erase(it); // 关键：更新迭代器
+        } else {
+            ++it; // 非删除情况正常递增
+        }
+    }
+    // 输出结果：1 3 5（偶数已被正确删除）
+    for (int num : v) cout << num << " ";
+    cout << endl << endl;
+
+    // 重置vector用于测试
+    v = {1, 2, 3, 4, 5};
+
+    // 情况2：insert（未扩容）导致迭代器失效及解决
+    it = v.begin() + 2; // 指向元素3
+    // 错误做法：插入后原迭代器（及后面）失效，需用返回值更新
+    it = v.insert(it, 10); // 正确做法：插入10到3的位置，返回指向10的迭代器
+    cout << "插入位置元素：" << *it << "，下一个元素：" << *(++it) << endl;
+    // 输出结果：1 2 10 3 4 5（插入成功）
+    for (int num : v) cout << num << " ";
+    cout << endl << endl;
 
 
+    // 重置vector并预留空间（避免扩容），再测试扩容场景
+    v = {1, 2, 3};
+    v.reserve(5); // 预留5个元素空间（此时容量足够，插入不会扩容）
+    cout << "=== 测试insert（扩容）导致的迭代器失效 ===" << endl;
+    it = v.begin() + 1; // 指向元素2
+    cout << "扩容前容量：" << v.capacity() << endl;
 
+    // 插入大量元素导致扩容（超过预留容量）
+    for (int i = 0; i < 5; ++i) {
+        v.insert(it, 100 + i);
+    }
+    cout << "扩容后容量：" << v.capacity() << endl;
 
+    // 错误：扩容后原迭代器it已失效，直接使用会崩溃
+    // cout << *it << endl; // 这行代码会导致未定义行为
 
+    // 正确做法：重新获取迭代器（通过位置偏移）
+    it = v.begin() + 1; // 重新定位到逻辑上的目标位置
+    cout << "扩容后重新获取的迭代器指向：" << *it << endl;
+    // 输出当前vector内容
+    for (int num : v) cout << num << " ";
+    cout << endl;
 
+    return 0;
+}
 
+```
 
-
-
-
+32、
 
 
 
