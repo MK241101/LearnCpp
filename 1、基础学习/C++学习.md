@@ -255,6 +255,8 @@ char* strcpy(char* dest, const char* src);
 
 
 
+
+
 # 2. C++基础部分
 
 ## 2.1 C++中的struct
@@ -366,6 +368,48 @@ shape &s2=r;    // 父类引用绑定到子类对象上
 
 - 两者的**核心功能相似**（都能通过基类类型操作派生类对象，实现多态），但**本质和使用规则完全不同**。
 - 指针更灵活（可重指向、可为空），但需手动管理地址；引用更安全（无空引用、不可变），但初始化后无法修改绑定。
+
+### 2.2.3 右值引用
+
+```C++
+int &&d=20;
+MyString &&e=MyString("aaa");
+```
+
+**右值引用的两大核心用途**
+
+**（1）实现 “移动语义”：避免深拷贝，提升性能**
+
+​		传统的**拷贝语义**（拷贝构造函数、拷贝赋值运算符）会对对象的资源（如堆内存、文件句柄）进行 “深拷贝”，开销大；而**移动语义**通过右值引用，直接 “转移” 右值对象的资源（而非拷贝），大幅减少开销。
+
+- 移动构造函数
+
+- 移动赋值运算符    （详情见3.15 对象优化的规则）
+
+**（2）实现 “完美转发”：保留参数的左右值属性**
+
+```C++
+// 模板参数 T&& 是“万能引用”（可接收左值或右值）
+template <typename T>
+void forwardFunc(T&& arg) {
+  // std::forward<T>(arg)：保留 arg 的原始左右值属性
+  process(std::forward<T>(arg));  
+}
+
+// 测试：分别传递左值和右值
+void process(int& arg) { cout << "处理左值\n"; }   // 左值版本
+void process(int&& arg) { cout << "处理右值\n"; }  // 右值版本
+
+int main() {
+  int a = 10;
+  forwardFunc(a);         // 传递左值，调用 process(int&)
+  forwardFunc(20);        // 传递右值，调用 process(int&&)
+  forwardFunc(std::move(a));  // 传递将亡值，调用 process(int&&)
+  return 0;
+}
+```
+
+
 
 ## 2.3 友元函数
 
@@ -1411,7 +1455,224 @@ int main() {
 }
 ```
 
+## 3.15 对象优化的规则
 
+- 函数参数传递过程中，对象优先按引用传递，不要按值传递
+- 函数返回对象时，优先返回一个临时对象，而不是返回局部定义的对象
+- 接收返回值是对象的函数调用时，优先按初始化的方式接收，不要按赋值的方式接收
+
+- **利用移动语义（C++11+）**：对临时对象或不再使用的局部对象，用 `std::move` 触发移动构造 / 移动赋值，避免深拷贝。
+
+- **避免不必要的拷贝构造**：通过 `const` 引用传递只读对象，或用 `emplace` 直接在容器中构造对象（替代 `insert`）。
+
+- **最小化临时对象的产生**：避免在循环或高频调用中创建临时对象（如字符串拼接可先 reserve 空间）
+
+先定义一个带日志的 `MyString` 类，便于观察构造 / 拷贝 / 移动行为：
+
+```cpp
+#include <iostream>
+#include <cstring>
+using namespace std;
+
+class MyString {
+private:
+    char* data;
+    int len;
+
+public:
+    // 构造函数
+    MyString(const char* str = "") {
+        len = strlen(str);
+        data = new char[len + 1];
+        strcpy(data, str);
+        cout << "构造：" << data << "（地址：" << (void*)data << "）\n";
+    }
+
+    // 拷贝构造（深拷贝，开销大）
+    MyString(const MyString& other) {
+        len = other.len;
+        data = new char[len + 1];
+        strcpy(data, other.data);
+        cout << "拷贝构造：" << data << "（地址：" << (void*)data << "）\n";
+    }
+
+    // 移动构造（转移资源，开销小）
+    MyString(MyString&& other) noexcept {
+        len = other.len;
+        data = other.data;  // 直接接管资源
+        other.data = nullptr;
+        other.len = 0;
+        cout << "移动构造：" << data << "（地址：" << (void*)data << "）\n";
+    }
+
+    // 赋值运算符（深拷贝）
+    MyString& operator=(const MyString& other) {
+        if (this != &other) {
+            delete[] data;
+            len = other.len;
+            data = new char[len + 1];
+            strcpy(data, other.data);
+            cout << "拷贝赋值：" << data << "（地址：" << (void*)data << "）\n";
+        }
+        return *this;
+    }
+
+    // 移动赋值
+    MyString& operator=(MyString&& other) noexcept {
+        if (this != &other) {
+            delete[] data;
+            data = other.data;  // 接管资源
+            len = other.len;
+            other.data = nullptr;
+            other.len = 0;
+            cout << "移动赋值：" << data << "（地址：" << (void*)data << "）\n";
+        }
+        return *this;
+    }
+
+    ~MyString() {
+        if (data) cout << "析构：" << data << "（地址：" << (void*)data << "）\n";
+        else cout << "析构：空对象\n";
+        delete[] data;
+    }
+
+    // 获取字符串长度
+    int length() const { return len; }
+};
+```
+
+#### 规则 1：函数参数优先按引用传递（避免按值传递）
+
+```cpp
+// 反例：按值传递（会触发拷贝构造，开销大）
+void badPrint(MyString s) {
+    cout << "打印：" << s.length() << " 字节\n";
+}
+
+// 正例：按 const 引用传递（无拷贝，直接访问原对象）
+void goodPrint(const MyString& s) {
+    cout << "打印：" << s.length() << " 字节\n";
+}
+
+// 调用对比
+int main() {
+    MyString str("test");
+    cout << "--- 按值传递 ---\n";
+    badPrint(str);  // 触发拷贝构造
+    cout << "--- 按引用传递 ---\n";
+    goodPrint(str); // 无拷贝
+    return 0;
+}
+```
+
+**输出差异**：按值传递多一次拷贝构造和析构，引用传递无额外开销。
+
+#### 规则 2：函数返回对象时，优先返回临时对象（触发移动或 RVO）
+
+```cpp
+// 反例：返回局部对象（可能触发拷贝，C++17前未必优化）
+MyString badReturn() {
+    MyString local("local");
+    return local;  // 返回局部变量，可能拷贝
+}
+
+// 正例：返回临时对象（直接触发移动构造或RVO优化）
+MyString goodReturn() {
+    return MyString("temporary");  // 返回临时对象
+}
+
+// 调用对比
+int main() {
+    cout << "--- 返回局部对象 ---\n";
+    MyString a = badReturn();
+    cout << "--- 返回临时对象 ---\n";
+    MyString b = goodReturn();
+    return 0;
+}
+```
+
+**输出差异**：返回临时对象可避免局部变量的拷贝（C++17 强制 RVO 优化，甚至无移动）。
+
+#### 规则 3：接收返回值时，优先用初始化（而非赋值）
+
+```cpp
+int main() {
+    cout << "--- 初始化接收（推荐） ---\n";
+    MyString c = goodReturn();  // 直接构造或移动构造
+
+    cout << "--- 赋值接收（不推荐） ---\n";
+    MyString d;  // 先默认构造
+    d = goodReturn();  // 再移动赋值（多一次默认构造+析构）
+    return 0;
+}
+```
+
+**输出差异**：初始化方式少一次默认构造和析构，更高效。
+
+#### 规则 4：利用移动语义（`std::move`）转移资源
+
+```cpp
+void useResource(MyString s) {
+    cout << "使用资源：" << s.length() << "\n";
+}
+
+int main() {
+    MyString e("需要转移的资源");
+    // 反例：直接传递，触发拷贝
+    useResource(e);  // e 仍持有资源，需拷贝
+
+    // 正例：用 std::move 转移，触发移动构造
+    useResource(std::move(e));  // e 不再持有资源，无拷贝
+    return 0;
+}
+```
+
+**输出差异**：`std::move` **将左值转为右值**，触发移动构造（转移资源而非拷贝）。
+
+#### 规则 5：用 `emplace` 代替 `insert`（容器操作）
+
+```cpp
+#include <vector>
+
+int main() {
+    vector<MyString> vec;
+
+    cout << "--- insert（插入对象，触发拷贝） ---\n";
+    MyString f("insert");
+    vec.insert(vec.end(), f);  // 拷贝构造
+
+    cout << "--- emplace（直接构造，无拷贝） ---\n";
+    vec.emplace(vec.end(), "emplace");  // 直接在容器中构造，无中间对象
+    return 0;
+}
+```
+
+**输出差异**：`emplace` 直接在容器内存中构造对象，避免 `insert` 所需的临时对象拷贝。
+
+#### 规则 6：最小化临时对象（如字符串拼接）
+
+```cpp
+// 反例：频繁创建临时对象
+MyString badConcat(const MyString& a, const MyString& b) {
+    MyString temp;  // 临时对象1
+    // 实际实现需拼接 a 和 b 到 temp（省略细节）
+    return temp;    // 可能产生临时对象2
+}
+
+// 正例：预留空间，减少临时对象
+MyString goodConcat(const MyString& a, const MyString& b) {
+    MyString temp;
+    temp.reserve(a.length() + b.length());  // 预留足够空间，避免中途扩容
+    // 拼接逻辑（省略）
+    return temp;  // 优化后可能无临时对象
+}
+```
+
+**核心**：提前分配足够内存，避免因容量不足导致的多次内存分配和对象拷贝。
+
+**总结**
+
+​		对象优化的核心是**减少不必要的拷贝构造和析构**，通过引用传递、移动语义、编译器优化（RVO）、容器 emplace 等手段，将 “深拷贝” 开销转化为 “资源转移” 或 “直接构造”，尤其适合大对象（如字符串、容器）的高频操作场景。
 
 
 
@@ -1814,6 +2075,37 @@ iterator                   // 通过迭代器查询
 | `unordered_map`      | 哈希表   | 键唯一、无序          | 键值对映射，高效查找            | 哈希表、缓存表、快速键值查询    |
 | `unordered_multimap` | 哈希表   | 键可重复、无序        | 一对多映射，高效查找            | 快速查询一个键对应的多个值      |
 
+# 6 智能指针
+
+## 6.1 不带计数器的智能指针
+
+**只有一个指针管理资源**
+
+（1）auto_ptr
+
+​		C++库本身有，但不推荐使用
+
+（2）scoped_ptr
+
+​		用的很少，基本不用
+
+**（3）unique_ptr**
+
+推荐使用
+
+```C++
+unique_ptr<int> p1(new int);
+//unique_ptr<int> p2(p1);    //unique中拷贝构造是删除的，不能用拷贝构造
+unique_ptr<int> p2(std::move(p1));   //通过 std::move 显式转移所有权
+*p1;    //不能再解引用p1，move(p1)之后，p2指向p1之前的资源，p1的指针指向空
+```
+
+## 6.2 带计数器的智能指针
+
+
+
+
+
 # 问题整理
 
 ## 一、基础知识
@@ -1895,9 +2187,18 @@ iterator                   // 通过迭代器查询
 
 ### 2、堆内存和栈内存的区别
 
+| 对比维度       | 栈（Stack）                                | 堆（Heap）                                    |
+| -------------- | ------------------------------------------ | --------------------------------------------- |
+| **管理方式**   | 编译器**自动管理**，无需手动干预           | 程序员**手动管理**（或垃圾回收机制辅助）      |
+| **分配与释放** | 函数调用时自动分配栈帧，函数结束时自动释放 | 运行时手动`new/malloc`申请，`delete/free`释放 |
+| **空间大小**   | 通常较小（几 MB~ 几百 MB），易栈溢出       | 受系统内存限制，远大于栈（可达 GB 级）        |
+| **访问速度**   | 内存连续，CPU 缓存友好，速度**更快**       | 内存非连续，需指针解引用，速度**稍慢**        |
+| **生命周期**   | 与函数调用绑定，函数结束后自动销毁         | 由程序员控制，可跨函数 / 程序生命周期         |
+| **存储内容**   | 局部变量、函数参数、返回地址等临时信息     | 动态对象、动态数组、生命周期长的数据          |
+| **内存碎片**   | 几乎无碎片（连续分配 + 自动释放）          | 频繁分配 / 释放易产生碎片                     |
+| **生长方向**   | 高地址 → 低地址                            | 低地址 → 高地址                               |
 
-
-
+静态创建：在栈内存中分配         动态创建：在堆内存中分配
 
 
 
