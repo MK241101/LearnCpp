@@ -253,6 +253,30 @@ char* strcpy(char* dest, const char* src);
 
 例如，若 `src` 是 `"abc"`（实际存储为 `'a','b','c','\0'`），则 `strcpy` 会将这 4 个字符完整复制到 `dest`。
 
+## 1.14 register关键字
+
+​	核心作用是**建议编译器将变量存储在 CPU 寄存器中**，以减少变量的访问时间（寄存器访问速度远快于内存），从而提升程序执行效率。它本质是对编译器的 “优化建议”，而非强制命令。
+
+​	`register` 关键字的核心使用限制之一就是：**只能修饰局部自动变量（即函数内部声明的、无 `static` 修饰的变量）**，而**不能用于类的数据成员**，原因是：类的数据成员属于类的实例（对象）的一部分，其存储位置在对象的内存空间中（堆或栈上），具有明确的内存地址，供对象访问和修改。而 `register` 关键字的本质是 “建议编译器将变量存储在 CPU 寄存器中”，**寄存器没有内存地址**，
+
+```cpp
+#include <stdio.h>
+
+int main() {
+    // 建议将循环计数器 i 存入寄存器（频繁自增和判断）
+    register int i;
+    long long sum = 0;
+    for (i = 0; i < 1000000000; i++) {
+        sum += i;
+    }
+    printf("sum = %lld\n", sum);
+    return 0;
+}
+```
+
+- C++11 后，`register` 的语义被弱化，仅保留 “提示编译器优化” 的作用，且不能修饰函数参数。
+- C++17 正式将 `register` 列为**弃用关键字**（deprecated），未来可能被移除，因为编译器优化已完全替代其功能。
+
 
 
 
@@ -547,7 +571,7 @@ const 成员函数的核心语义是：**不会修改对象的非静态成员变
 
 **（2）使用规则与限制**
 
-- 不能修改非静态成员变量
+- **不能修改非静态成员变量**
 
 - 不能调用非 const 成员函数
 - 可以访问成员变量，但不能修改
@@ -2642,7 +2666,248 @@ t.join();
 
 避免为仅使用一次的简单逻辑单独定义函数，使代码更紧凑。
 
+## 6.5 多线程编程
 
+生产者消费者模型
+
+```cpp
+#include<iostream>
+#include<thread>
+#include<mutex>
+#include<queue>
+#include<condition_variable>
+using namespace std;
+
+mutex mtx;
+condition_variable cv;
+
+class Queue {
+public:
+	void put(int val) {
+		
+		unique_lock<mutex> lck(mtx);
+		while (!que.empty()) {
+			
+			cv.wait(lck);
+		}
+		que.push(val);
+		cv.notify_all();
+		cout << "生产者 生产了：" << val << "号物品" << endl;
+	}
+
+	int get() {
+		unique_lock<mutex> lck(mtx);
+
+		while (que.empty()) {
+			cv.wait(lck);
+		}
+		
+		int val = que.front();
+		que.pop();
+		cv.notify_all();
+		cout << "消费者 消费了：" << val << "号物品" << endl;
+		return val;
+	}
+
+private:
+	queue<int> que;
+
+};
+
+void producer(Queue* que) {
+
+	for (int i = 1; i <= 10; i++) {
+	que->put(i);
+	this_thread::sleep_for(chrono::milliseconds(100));
+	}
+
+}
+
+void consumer(Queue* que) {
+	for (int i = 1; i <= 10; i++) {
+		que->get();
+		this_thread::sleep_for(chrono::milliseconds(150));
+	}
+}
+
+int main() {
+	Queue que;
+	thread t1(producer, &que);
+	thread t2(consumer, &que);
+	t1.join();
+	t2.join();
+
+}
+
+```
+
+## 6.6 设计模式
+
+### 6.6.1 单例模式
+
+​	单例模式是一种创建型设计模式，其核心目标是确保一个类在程序生命周期中**只存在一个实例**，并提供一个**全局访问点**供其他代码使用。在 C++ 中，单例模式主要分为**饿汉式**和**懒汉式**两种实现方式，两者的核心区别在于**实例初始化的时机**。
+
+#### **（1）饿汉式单例**
+
+饿汉式的特点是：**在程序启动时（类加载阶段）就完成实例的初始化**，无论后续是否会使用该实例。
+
+**实现原理**
+
+- 将类的构造函数、拷贝构造函数、赋值运算符声明为私有（或删除），禁止外部创建新实例或复制实例。
+
+- 在类内部定义一个静态的私有实例对象（类加载时初始化）。
+
+- 提供一个静态的公有方法，返回该唯一实例的引用或指针。
+
+```cpp
+class SingletonHungry {
+private:
+    SingletonHungry() {}      // 私有构造函数：禁止外部创建实例
+    
+    // 禁用拷贝构造和赋值运算符（C++11及以上）
+    SingletonHungry(const SingletonHungry&) = delete;
+    SingletonHungry& operator=(const SingletonHungry&) = delete;
+    
+    // 静态私有实例（程序启动时初始化）
+    static SingletonHungry instance;
+
+public:
+    // 全局访问点：返回唯一实例
+    static SingletonHungry& getInstance() {
+        return instance;
+    }
+};
+
+SingletonHungry SingletonHungry::instance;   // 类外初始化静态成员（饿汉式的核心：在main函数执行前完成初始化）
+```
+
+**优缺点**
+
+- 优点：实现简单，无需考虑线程安全问题（初始化在程序启动时完成，此时无多线程竞争）。
+- 缺点：
+  - 资源浪费：如果实例从未被使用，初始化的资源（如内存）会被白白占用。
+  - 无法处理依赖关系：如果实例初始化依赖其他动态数据（如配置文件读取结果），饿汉式无法满足（因为初始化时机过早）。
+
+#### **（2）懒汉式单例**
+
+懒汉式的特点是：**实例在第一次被使用时才初始化**，避免了不必要的资源浪费。
+
+**实现原理**
+
+- 同样将构造函数、拷贝构造、赋值运算符私有化（或删除）。
+
+- 类内部定义一个静态的私有指针（或引用），初始化为`nullptr`。
+
+- 提供静态公有方法 getInstance()，在方法内部判断实例是否已创建：若未创建，则初始化实例；若已创建，则直接返回实例。
+
+​	**基础版（非线程安全）**
+
+```cpp
+class SingletonLazy {
+private:
+    
+    SingletonLazy() {}   // 私有构造函数
+    
+    SingletonLazy(const SingletonLazy&) = delete;   // 禁用拷贝和赋值
+    SingletonLazy& operator=(const SingletonLazy&) = delete;
+    
+    static SingletonLazy* instance;   // 静态私有指针（初始化为nullptr）
+
+public:
+    // 全局访问点：第一次调用时初始化
+    static SingletonLazy* getInstance() {
+        if (instance == nullptr) {
+            instance = new SingletonLazy(); // 第一次使用时创建
+        }
+        return instance;
+    }
+};
+
+SingletonLazy* SingletonLazy::instance = nullptr;   // 初始化为nullptr
+```
+
+**问题**：多线程环境下，多个线程可能同时进入`if (instance == nullptr)`，导致创建多个实例，破坏单例特性。
+
+**线程安全版（双重检查锁定）**
+
+为解决线程安全问题，需引入锁机制，同时通过 “双重检查” 减少锁的开销：
+
+```cpp
+#include <mutex>
+
+class SingletonLazySafe {
+private:
+    SingletonLazySafe() {}
+    SingletonLazySafe(const SingletonLazySafe&) = delete;
+    SingletonLazySafe& operator=(const SingletonLazySafe&) = delete;
+    
+    static SingletonLazySafe* instance;
+    static std::mutex mtx; // 互斥锁
+
+public:
+    static SingletonLazySafe* getInstance() {
+        // 第一次检查：未加锁，快速判断（避免每次调用都加锁）
+        if (instance == nullptr) {
+            std::lock_guard<std::mutex> lock(mtx); // 加锁
+            // 第二次检查：加锁后再次判断（防止多线程同时通过第一次检查）
+            if (instance == nullptr) {
+                instance = new SingletonLazySafe();
+            }
+        }
+        return instance;
+    }
+};
+
+// 初始化静态成员
+SingletonLazySafe* SingletonLazySafe::instance = nullptr;
+std::mutex SingletonLazySafe::mtx;
+```
+
+**简化版（C++11 局部静态变量）**
+
+C++11 标准规定：**局部静态变量的初始化是线程安全的**（在第一次访问时初始化，且仅一次）。利用这一特性可简化实现：
+
+```cpp
+class SingletonLazySimpler {
+private:
+    SingletonLazySimpler() {}
+    SingletonLazySimpler(const SingletonLazySimpler&) = delete;
+    SingletonLazySimpler& operator=(const SingletonLazySimpler&) = delete;
+
+public:
+    // 局部静态变量：第一次调用时初始化，且线程安全（C++11及以上）
+    static SingletonLazySimpler& getInstance() {
+        static SingletonLazySimpler instance;
+        return instance;
+    }
+};
+```
+
+这是目前推荐的懒汉式实现方式，兼顾线程安全和简洁性。
+
+**优缺点**
+
+- 优点：
+  - 延迟初始化，避免资源浪费（实例仅在需要时创建）。
+  - 可处理动态依赖（初始化代码可放在`getInstance()`中，使用运行时数据）。
+- 缺点：
+  - 基础版线程不安全，需额外处理（如加锁）。
+  - 实现相对复杂（非 C++11 环境下）。
+
+| 特性       | 饿汉式                     | 懒汉式                               |
+| ---------- | -------------------------- | ------------------------------------ |
+| 初始化时机 | 程序启动时（类加载阶段）   | 第一次调用`getInstance()`时          |
+| 线程安全   | 天然安全（无多线程竞争）   | 需额外处理（C++11 局部静态变量除外） |
+| 资源占用   | 可能浪费（未使用也初始化） | 按需分配（更高效）                   |
+| 依赖处理   | 不支持动态依赖             | 支持动态依赖                         |
+| 实现复杂度 | 简单                       | 较复杂（需考虑线程安全）             |
+
+**适用场景**
+
+- **饿汉式**：适合实例占用资源少、肯定会被使用的场景（如日志器、配置管理器）。
+- **懒汉式**：适合实例占用资源多、可能不被使用的场景（如大型缓存、数据库连接池）。
+
+​	单例模式的核心是 “唯一实例 + 全局访问”，但需谨慎使用（可能导致代码耦合性升高），实际开发中应根据需求选择合适的实现方式。
 
 
 
@@ -2935,3 +3200,21 @@ int main() {
 
 
 cl 文件名 /d1reportSingleClassLayoutB                         B是类名
+
+# 经典题目
+
+## 一、基础知识
+
+
+
+
+
+## 二、C++基础部分
+
+## 三、面向对象
+
+## 四、模板
+
+## 五、STL
+
+## 六、C++11新特性
