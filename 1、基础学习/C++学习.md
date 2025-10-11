@@ -665,7 +665,7 @@ P(*a)[3] = &arr;
 
 当变量是指针、数组、结构体（含指针成员）等复合类型时，拷贝可能涉及“浅”或“深”的区别：
 
-```C++
+```Cpp
 int* p = new int(10);
 int* q = p;   //浅拷贝：q和p指向同一块内存
 
@@ -695,6 +695,7 @@ A b = a; // 浅拷贝：b.data和a.data指向同一块内存
 例如：**自定义的深拷贝构造函数**
 
 ```C++
+
 class A {
 public:
     int* data;
@@ -706,7 +707,78 @@ A a(10);
 A b = a; // 深拷贝：b.data指向新内存，内容与a.data相同
 ```
 
+## 2.10 mutable
 
+​	在 C++ 中，`mutable` 是一个关键字，主要用于**打破 `const` 修饰带来的常量性限制**，允许在特定场景下修改被修饰的变量。它的核心作用是区分 “对象的物理常量性” 和 “逻辑常量性”，常见于以下两种场景：
+
+### 2.10.1 修饰类的非静态成员变量：允许在 `const` 成员函数中修改
+
+```cpp
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Student {
+private:
+    string _name;
+    mutable string _cache;  // 缓存：用于存储计算后的结果，可在const函数中修改
+    mutable bool _cacheValid;  // 标记缓存是否有效
+
+public:
+    Student(string name) : _name(name), _cacheValid(false) {}
+
+    // const成员函数：逻辑上不修改对象的核心状态（_name）
+    string getInfo() const {
+        if (!_cacheValid) {
+            // 计算结果并缓存（修改mutable变量）
+            _cache = "Name: " + _name + ", Status: Active";
+            _cacheValid = true;  // 更新缓存状态
+        }
+        return _cache;
+    }
+};
+
+int main() {
+    const Student s("Alice");  // const对象：理论上不能被修改
+    cout << s.getInfo() << endl;  // 调用const成员函数，内部修改了mutable变量
+    return 0;
+}
+```
+
+### 2.10.2 修饰 lambda 表达式中的捕获变量：允许修改按值捕获的变量
+
+​	Lambda 表达式按值捕获变量时，默认捕获的是 “常量副本”（在 lambda 内部不能修改）。若需要在 lambda 中修改按值捕获的变量，需用 `mutable` 修饰 lambda。
+
+```cpp
+#include <iostream>
+using namespace std;
+
+int main() {
+    int x = 10;
+
+    // 普通lambda：按值捕获x，内部不能修改x
+    auto lambda1 = [x]() {
+        // x++;  // 错误：按值捕获的x默认是const，不能修改
+        cout << "lambda1: x = " << x << endl;
+    };
+
+    // mutable lambda：允许修改按值捕获的x
+    auto lambda2 = [x]() mutable {
+        x++;  // 合法：mutable取消了捕获变量的const限制
+        cout << "lambda2: x = " << x << endl;
+    };
+
+    lambda1();  // 输出：lambda1: x = 10
+    lambda2();  // 输出：lambda2: x = 11
+    cout << "外部x = " << x << endl;  // 输出：外部x = 10（lambda内部修改的是副本）
+    return 0;
+}
+```
+
+**说明**：
+
+- `lambda1` 按值捕获 `x`，内部 `x` 是 `const` 副本，无法修改。
+- `lambda2` 用 `mutable` 修饰后，按值捕获的 `x` 变为 “可修改的副本”，允许在 lambda 内部修改（但不会影响外部的原变量 `x`）。
 
 # 3 面向对象
 
@@ -1258,6 +1330,8 @@ int main(void)
 
 - 一个类里面的虚函数的个数，不影响对象内存的大小，影响的是虚函数表的大小。
 
+- 静态成员函数、内联函数、构造函数 不能声明为虚函数
+
 ```c++
 class Base{
 public:
@@ -1747,7 +1821,7 @@ int main() {
 - 模板代码在调用之前，一定要看到模板定义的地方，这样才能够进行正常的实例化，产生能够被编译器编译的代码。所以模板代码都是放在头文件当中的
 - 模版函数、模板的特例化、非模板函数的重载三者之间的关系
 
-​			他们三者核心关系体现在**编译器对函数调用的匹配规则**上。
+​		他们三者核心关系体现在**编译器对函数调用的匹配规则**上。
 
 ​		（1）概念回顾
 
@@ -1909,7 +1983,54 @@ int main()
 }
 ```
 
+## 4.3 特例化
 
+- **完全特化**：为模板的**所有模板参数**指定具体类型，生成一个针对该特定参数组合的独立实现。
+- **部分特化（偏特化）**：为模板的**部分模板参数**指定具体类型，剩余参数仍保留为模板参数，生成一个 “半通用” 的特化版本。
+
+```C++
+#include <iostream>
+using namespace std;
+
+// 1. 主模板（通用版本）
+template <typename T, typename U>
+class MyTemplate {
+public:
+    void print() {
+        cout << "通用版本：T = " << typeid(T).name() 
+             << ", U = " << typeid(U).name() << endl;
+    }
+};
+
+// 2. 完全特化：为 T=int、U=double 这一特定组合提供专门实现
+template <>  // 完全特化需空模板参数列表
+class MyTemplate<int, double> {
+public:
+    void print() {
+        cout << "完全特化版本：T=int, U=double" << endl;
+    }
+};
+
+// 3. 部分特化：为 T=int（第一个参数固定为int），第二个参数仍为模板参数 U
+template <typename U>  // 仅保留部分参数为模板
+class MyTemplate<int, U> {
+public:
+    void print() {
+        cout << "部分特化版本：T=int, U = " << typeid(U).name() << endl;
+    }
+};
+
+int main() {
+    MyTemplate<char, float> t1;    // 使用通用版本
+    MyTemplate<int, double> t2;    // 使用完全特化版本
+    MyTemplate<int, string> t3;    // 使用部分特化版本（T=int，U=string）
+    
+    t1.print();  // 输出：通用版本：T = char, U = float
+    t2.print();  // 输出：完全特化版本：T=int, U=double
+    t3.print();  // 输出：部分特化版本：T=int, U = string
+    return 0;
+}
+```
 
 
 
@@ -1917,7 +2038,7 @@ int main()
 
 ## 5.1 迭代器
 
-​		可以把迭代器理解为 **“带逻辑的指针”**—— 不仅存储元素的地址，还关联着容器的结构规则。当容器的 “底层支撑”（内存、节点关系等）被改变时，迭代器的 “指向逻辑” 就会被破坏，从而失效。
+​	可以把迭代器理解为 **“带逻辑的指针”**—— 不仅存储元素的地址，还关联着容器的结构规则。当容器的 “底层支撑”（内存、节点关系等）被改变时，迭代器的 “指向逻辑” 就会被破坏，从而失效。
 
 功能：提供一种统一的方式，**来透明的遍历容器**
 
@@ -2075,11 +2196,52 @@ iterator                   // 通过迭代器查询
 | `unordered_map`      | 哈希表   | 键唯一、无序          | 键值对映射，高效查找            | 哈希表、缓存表、快速键值查询    |
 | `unordered_multimap` | 哈希表   | 键可重复、无序        | 一对多映射，高效查找            | 快速查询一个键对应的多个值      |
 
-# 6 智能指针
+## 5.5 STL中的绑定器
 
-## 6.1 不带计数器的智能指针
+​	`bind1st` 和 `bind2nd` 用于将**二元函数（需要两个参数的函数 / 仿函数）** 转换为**一元函数（只需要一个参数）**，方便与 STL 算法（如 `find_if`、`count_if` 等需要一元谓词的算法）配合使用。
 
-**只有一个指针管理资源**
+- **`bind1st(f, val)`**：将二元函数 `f` 的**第一个参数绑定为固定值 `val`**，返回一个一元函数。调用该一元函数时，传入的参数会作为 `f` 的第二个参数。    等效逻辑：`f(val, x)`（`x` 是后续传入的参数）。
+- **`bind2nd(f, val)`**：将二元函数 `f` 的**第二个参数绑定为固定值 `val`**，返回一个一元函数。调用该一元函数时，传入的参数会作为 `f` 的第一个参数。    等效逻辑：`f(x, val)`（`x` 是后续传入的参数）。
+- 局限性：只能处理**二元函数**，无法适配更多参数的函数；
+
+```c++
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <functional> // 包含 bind1st、bind2nd
+
+using namespace std;
+
+int main() {
+    vector<int> nums = {1, 3, 6, 8, 2, 10};
+
+    // 1. 使用 bind2nd：将 less<int>() 的第二个参数绑定为 5，生成一元函数：x < 5
+    // 查找第一个满足 x < 5 的元素
+    auto it1 = find_if(nums.begin(), nums.end(), bind2nd(less<int>(), 5));
+    if (it1 != nums.end()) {
+        cout << "第一个小于 5 的元素：" << *it1 << endl; // 输出：1
+    }
+
+    // 2. 使用 bind1st：将 less<int>() 的第一个参数绑定为 5，生成一元函数：5 < x
+    // 查找第一个满足 5 < x 的元素
+    auto it2 = find_if(nums.begin(), nums.end(), bind1st(less<int>(), 5));
+    if (it2 != nums.end()) {
+        cout << "第一个大于 5 的元素：" << *it2 << endl; // 输出：6
+    }
+
+    return 0;
+}
+```
+
+
+
+# 6 C++11特性
+
+## 6.1智能指针
+
+### 6.1.1不带计数器的智能指针
+
+​	只有一个指针管理资源
 
 （1）auto_ptr
 
@@ -2091,7 +2253,7 @@ iterator                   // 通过迭代器查询
 
 **（3）unique_ptr**
 
-推荐使用
+​		推荐使用
 
 ```C++
 unique_ptr<int> p1(new int);
@@ -2100,7 +2262,385 @@ unique_ptr<int> p2(std::move(p1));   //通过 std::move 显式转移所有权
 *p1;    //不能再解引用p1，move(p1)之后，p2指向p1之前的资源，p1的指针指向空
 ```
 
-## 6.2 带计数器的智能指针
+### 6.1.2 带计数器的智能指针
+
+多个指针可以管理同一个资源
+
+shared_ptr：强智能指针，可以改变资源的引用计数
+
+weak_ptr：弱智能指针，不会改变资源的引用计数，只能观察资源，不能访问资源，可以提升为强智能指针
+
+```C++
+#include <iostream>
+#include <memory>
+
+class B; // 前向声明
+
+class A {
+public:
+    std::shared_ptr<B> b_ptr; // A持有B的shared_ptr
+    ~A() {std::cout << "A被销毁" << std::endl;}
+};
+
+class B {
+public:
+    std::shared_ptr<A> a_ptr; // B持有A的shared_ptr
+    // std::weak_ptr<A> a_ptr; // 解决方法，修改为weak_ptr
+    ~B() {std::cout << "B被销毁" << std::endl;}
+};
+
+int main() {
+    {
+        std::shared_ptr<A> a = std::make_shared<A>();   // 创建两个对象并相互引用
+        std::shared_ptr<B> b = std::make_shared<B>();
+        
+        a->b_ptr = b; // A指向B
+        b->a_ptr = a; // B指向A
+    } // 离开作用域，预期会销毁a和b
+    
+    std::cout << "程序结束" << std::endl;
+    return 0;
+}
+```
+
+## 6.2 函数包装器function
+
+`std::function` 是 C++11 引入的**通用多态函数包装器**（定义在 `<functional>` 头文件中），能存储、复制、调用各种 “可调用对象”（普通函数、Lambda、成员函数、仿函数等），让函数调用更灵活、类型更安全。`std::function` 是类模板，声明格式为：
+
+```cpp
+std::function<返回值类型(参数类型列表)> 变量名;
+```
+
+- 示例：`std::function<int(int, double)>` 表示 “接受 `int` 和 `double` 参数、返回 `int` 的可调用对象”。
+
+### 6.2.1支持的可调用对象
+
+**（1）包装普通函数**
+
+普通函数的 “签名（返回值 + 参数）” 与 `std::function` 声明匹配时，可直接赋值。
+
+```cpp
+#include <iostream>
+#include <functional>
+using namespace std;
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int main() {
+    function<int(int, int)> func = add;
+    cout << func(3, 5) << endl; // 输出：8
+    return 0;
+}
+```
+
+**（2）包装 Lambda 表达式**
+
+Lambda 是匿名函数，可直接赋值给 `std::function`，适合快速定义临时逻辑。
+
+```cpp
+#include <iostream>
+#include <functional>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int arr[] = {1, 5, 4, 8, 6};
+    // Lambda 实现“降序比较”，赋值给 function
+    function<bool(int, int)> cmp = [](int a, int b) { return a > b; };
+    sort(arr, arr + 5, cmp);
+    for (int num : arr) cout << num << " "; // 输出：8 6 5 4 1
+    return 0;
+}
+```
+
+**（3）包装成员函数**
+
+成员函数隐含 `this` 指针，因此 `std::function` 的参数需包含 “类对象（指针 / 引用）”。
+
+```cpp
+#include <iostream>
+#include <functional>
+using namespace std;
+
+class Foo {
+public:
+    Foo(int num) : num_(num) {}
+    void printAdd(int i) const {
+        cout << num_ + i << endl;
+    }
+private:
+    int num_;
+};
+
+int main() {
+    // 声明：返回值 void，参数为 const Foo& 和 int
+    function<void(const Foo&, int)> f = &Foo::printAdd;
+    Foo foo(2);
+    f(foo, 3); // 调用 foo.printAdd(3)，输出：5
+    return 0;
+}
+```
+
+**（4）包装仿函数（函数对象）**
+
+仿函数是**重载了 `operator()` 的类对象**，可像函数一样调用，也能被 `std::function` 包装。
+
+```cpp
+#include <iostream>
+#include <functional>
+using namespace std;
+
+struct Adder {
+    int operator()(int a, int b) const {
+        return a + b;
+    }
+};
+
+int main() {
+    Adder adder;
+    function<int(int, int)> func = adder;
+    cout << func(2, 7) << endl; // 输出：9
+    return 0;
+}
+```
+
+## 6.3 绑定器bind
+
+​	 `std::bind`（定义在 `<functional>` 头文件中）是一个灵活的**函数适配器**，可以将函数（或可调用对象）与部分 / 全部参数绑定，生成一个新的可调用对象。它解决了旧版 `bind1st`/`bind2nd` 只能绑定二元函数的局限，支持任意参数数量、调整参数顺序、绑定成员函数等场景。
+
+### 6.3.1 基本用法
+
+`std::bind` 的基本语法：
+
+```cpp
+auto 新对象 = std::bind(原函数, 参数列表);
+```
+
+- **参数列表**中，可用 `std::placeholders::_1, _2, ...` 表示 “待传入的参数”（占位符），其他值表示 “固定绑定的参数”。
+- 调用 “新对象” 时，传入的参数会替换占位符，最终转发给原函数执行。
+
+```cpp
+#include <iostream>
+#include <functional> // 包含 std::bind 和占位符
+using namespace std;
+
+// 1. 普通函数：计算 a + b * c
+int calculate(int a, int b, int c) {
+    return a + b * c;
+}
+
+// 2. 类与成员函数
+class Math {
+public:
+    int multiply(int x, int y) { return x * y; } // 成员函数
+    static int subtract(int x, int y) { return x - y; } // 静态成员函数
+};
+
+int main() {
+    // 场景1：绑定普通函数，固定部分参数
+    // 绑定 calculate 的第2个参数为 2，生成：a + 2 * c（需传入 a 和 c，对应 _1 和 _2）
+    auto func1 = bind(calculate, placeholders::_1, 2, placeholders::_2);
+    cout << "func1(3, 4) = " << func1(3, 4) << endl; // 3 + 2*4 = 11
+
+    // 场景2：调整参数顺序
+    // 绑定 calculate，将参数顺序改为 (c, a, b)，即 c + a * b（原参数 a,b,c）
+    auto func2 = bind(calculate, placeholders::_2, placeholders::_3, placeholders::_1);
+    cout << "func2(5, 1, 2) = " << func2(5, 1, 2) << endl; // 1 + 2*5 = 11（原 a=1, b=2, c=5）
+
+    // 场景3：绑定成员函数（需传入对象指针/引用）
+    Math m;
+    // 绑定成员函数 multiply，固定第1个参数为 3（需传入对象和第2个参数 y）
+    auto func3 = bind(&Math::multiply, &m, 3, placeholders::_1);
+    cout << "func3(4) = " << func3(4) << endl; // 3 * 4 = 12
+
+    // 场景4：绑定静态成员函数（无需对象，直接绑定）
+    auto func4 = bind(&Math::subtract, placeholders::_2, placeholders::_1); // 交换参数
+    cout << "func4(5, 8) = " << func4(5, 8) << endl; // 8 - 5 = 3
+
+    return 0;
+}
+```
+
+**总结**
+
+`std::bind` 的核心价值在于**灵活适配函数参数**，主要特点：
+
+1. **绑定任意参数**：支持固定部分参数，剩余参数用占位符接收（不限数量）。
+2. **调整参数顺序**：通过占位符重新排列原函数的参数顺序。
+3. **支持多种可调用对象**：普通函数、成员函数（需绑定对象）、静态成员函数、Lambda、仿函数等。
+
+### 6.3.2 配合function使用
+
+```C++
+class Calculator {   // 定义一个简单的计算类
+public:
+    int compute(int a, int b, int c) {
+        return a + b * c;
+    }
+    
+    static int square(int x) {
+        return x * x;
+    }
+};
+
+int main() {
+    Calculator calc;
+    
+    // 场景1：绑定成员函数，固定部分参数，用 function 存储
+    // 绑定 compute 的第2个参数为 2，生成：a + 2 * c（需传入 a 和 c）
+    function<int(int, int)> func1 = bind(
+        &Calculator::compute,  // 成员函数地址
+        &calc,                 // 绑定对象（this指针）
+        placeholders::_1,      // 第一个占位符（对应 a）
+        2,                     // 固定 b=2
+        placeholders::_2       // 第二个占位符（对应 c）
+    );
+    
+    // 场景2：绑定静态成员函数，调整参数顺序，用 function 存储
+    // 静态函数无需绑定对象，这里演示用 bind 包装后存入 function
+    function<int(int)> func2 = bind(&Calculator::square, placeholders::_1);
+    
+    // 场景3：绑定普通Lambda表达式，用 function 统一管理
+    function<int(int, int)> func3 = bind(
+        [](int x, int y) { return x * 10 + y; },  // Lambda表达式
+        placeholders::_2,                         // 交换参数顺序：先 y 后 x
+        placeholders::_1
+    );
+    
+    // 调用包装后的函数
+    cout << "func1(3, 4) = " << func1(3, 4) << endl;  // 3 + 2*4 = 11
+    cout << "func2(5) = " << func2(5) << endl;        // 5*5 = 25
+    cout << "func3(6, 7) = " << func3(6, 7) << endl;  // 7*10 + 6 = 76
+    
+    return 0;
+}
+```
+
+**代码说明：**
+
+1. **`std::bind` 的作用**：
+
+   - 绑定成员函数时，需要指定对象指针（`&calc`）作为第一个参数（对应 `this` 指针）。
+   - 通过 `placeholders::_1`、`_2` 等占位符预留参数位置，后续调用时传入的参数会替换这些占位符。
+   - 支持调整参数顺序（如场景 3 中交换了 Lambda 的参数顺序）。
+
+2. **`std::function` 的作用**：
+
+   - 提供统一的类型接口，无论 `bind` 绑定的是成员函数、静态函数还是 Lambda，都能存储在同类型的 `function` 对象中。
+   - 方便函数的传递、存储和调用（如作为函数参数或返回值）。
+
+3. **结合优势**：
+
+   两者配合使用，既能通过 `bind` 灵活调整函数参数（固定值、重排顺序），又能通过 `function` 实现可调用对象的类型安全管理，非常适合回调函数、策略模式等场景。
+
+## 6.4 lambda表达式
+
+lambda表达式是函数对象的升级版
+
+lambda 表达式的完整结构如下：
+
+```cpp
+[capture-list] (parameter-list) mutable noexcept -> return-type { function-body }
+//[捕获外部变量]（形参列表）mutable noexcept -> 返回值类型 {函数体}
+```
+
+各部分含义：
+
+- **`[capture-list]`（捕获列表）**：指定从 lambda 所在作用域中 “捕获” 哪些变量（用于在 lambda 内部使用）。**（相当于对应的函数对象的构造函数接收的参数）**
+- **`(parameter-list)`（参数列表）**：与普通函数的参数列表一致，可省略（无参数时）。（**相当于对应函数对象的运算符重载operator（）传入的参数）**
+- **`mutable`（可选）**：允许修改按值捕获的变量（默认按值捕获的变量是 `const` 副本）。
+- **`noexcept`（可选）**：声明 lambda 不会抛出异常。
+- **`-> return-type`（返回类型，可选）**：指定返回值类型，若函数体只有 `return` 语句且类型可推导，可省略。（**相当于对应函数对象的运算符重载operator（）的返回值类型）**
+- **`{ function-body }`（函数体）**：函数逻辑实现。（**相当于对应函数对象的运算符重载operator（）的函数体部分）**
+
+| 捕获方式    | 含义                                                         |
+| ----------- | ------------------------------------------------------------ |
+| `[]`        | 不捕获任何外部变量（lambda 内部无法使用外部变量）。相当于对应的函数对象的构造函数不接收参数 |
+| `[var]`     | 按**值**捕获变量 `var`（内部是副本，修改不影响外部）。       |
+| `[&var]`    | 按**引用**捕获变量 `var`（内部是引用，修改会影响外部）。     |
+| `[=]`       | 按**值**捕获**所有**外部变量（lambda 中使用的变量均为副本）。 |
+| `[&]`       | 按**引用**捕获**所有**外部变量（lambda 中使用的变量均为引用）。 |
+| `[=, &var]` | 除 `var` 按引用捕获外，其余变量按值捕获（`&var` 覆盖默认的 `=`）。 |
+| `[&, var]`  | 除 `var` 按值捕获外，其余变量按引用捕获（`var` 覆盖默认的 `&`）。 |
+| `[this]`    | 在类的成员函数中，捕获当前对象的 `this` 指针（可访问类的成员变量 / 函数）。 |
+
+```cpp
+#include <iostream>
+using namespace std;
+
+int main() {
+    int a = 10, b = 20;
+
+    // 1. [=]：按值捕获所有变量（a和b的副本）
+    auto lambda1 = [=]() {
+        cout << "lambda1: a=" << a << ", b=" << b << endl;  // 可访问a、b的副本
+        // a++;  // 错误：按值捕获的变量默认是const，不能修改
+    };
+
+    // 2. [&]：按引用捕获所有变量（a和b的引用）
+    auto lambda2 = [&]() {
+        a++;  // 合法：修改的是外部a
+        b++;  // 合法：修改的是外部b
+        cout << "lambda2: a=" << a << ", b=" << b << endl;
+    };
+
+    // 3. [a, &b]：a按值捕获，b按引用捕获
+    auto lambda3 = [a, &b]() mutable {  // mutable允许修改按值捕获的a
+        a++;  // 仅修改副本，不影响外部a
+        b++;  // 修改外部b
+        cout << "lambda3: 副本a=" << a << ", 外部b=" << b << endl;
+    };
+
+    lambda1();  // 输出：lambda1: a=10, b=20
+    lambda2();  // 输出：lambda2: a=11, b=21（外部a、b已被修改）
+    lambda3();  // 输出：lambda3: 副本a=11, 外部b=22（外部b再次被修改）
+    cout << "外部：a=" << a << ", b=" << b << endl;  // 输出：外部：a=11, b=22
+    return 0;
+}
+```
+
+**`mutable` 关键字的作用**
+
+默认情况下，**按值捕获的变量在 lambda 内部是 `const` 副本**，无法修改。若需要修改按值捕获的变量，需用 `mutable` 修饰 lambda：
+
+```cpp
+int x = 5;
+auto func = [x]() mutable {  // mutable 取消按值捕获变量的 const 限制
+    x++;  // 合法：修改的是副本
+    cout << "内部x=" << x << endl;  // 输出：6
+};
+func();
+cout << "外部x=" << x << endl;  // 输出：5（外部变量不受影响）
+```
+
+**应用场景**
+
+lambda 最适合**简短的、临时的函数逻辑**，常见场景：
+
+（1）**作为算法的谓词**（如 `sort`、`find_if` 等 STL 算法）：
+
+```cpp
+#include <vector>
+#include <algorithm>
+vector<int> nums = {3, 1, 4, 1, 5};
+// 用lambda指定排序规则（降序）
+sort(nums.begin(), nums.end(), [](int a, int b) { return a > b; });
+```
+
+（2）**作为回调函数**（如线程任务、事件响应）：
+
+```cpp
+#include <thread>
+// 用lambda作为线程任务
+thread t([]() { cout << "线程执行中..." << endl; });
+t.join();
+```
+
+（3）**简化代码**（替代简短的命名函数或仿函数）：
+
+避免为仅使用一次的简单逻辑单独定义函数，使代码更紧凑。
 
 
 
@@ -2326,9 +2866,19 @@ int main() {
 
 
 
+## 六、C++11特性
 
 
 
+### 1、强智能指针的循环引用（交叉引用），会造成什么结果？怎样解决？
+
+会使得new出来的资源无法释放，造成资源泄露的问题。
+
+解决方法：定义对象时，用强智能指针，引用对象时，用弱智能指针
+
+### 2、多线程访问共享对象的线程安全问题
+
+可以使用智能指针来解决
 
 
 
