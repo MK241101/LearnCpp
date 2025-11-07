@@ -3631,7 +3631,22 @@ cl 文件名 /d1reportSingleClassLayoutB                         B是类名
 
 
 
+su - mk1030
 
+cd /mnt/d/EEEEEEEEEEEE/Code/Linux/ConsoleApplication1/bin/x64/Debug/
 
+```c
+printf("%s(%d):%s\n",__FILE__,__LINE__,__FUNCTION__);
+```
 
+```bash
+sudo lsof -i :9527
+```
 
+```bash
+sudo kill -9 
+```
+
+查看进程
+
+ps -Al
